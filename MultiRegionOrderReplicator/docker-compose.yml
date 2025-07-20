@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  zookeeper-local:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper-local
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka-local:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka-local
+    depends_on:
+      - zookeeper-local
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-local:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-local:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 10  
+
+  zookeeper-remote:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper-remote
+    ports:
+      - "2182:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka-remote:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka-remote
+    depends_on:
+      - zookeeper-remote
+    ports:
+      - "9093:9093"
+      - "29093:29093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-remote:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-remote:29093,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29093 --list || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  mirrormaker:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: mirrormaker
+    depends_on:
+      kafka-local:
+        condition: service_healthy
+      kafka-remote:
+        condition: service_healthy
+    volumes:
+      - ./mm2.properties:/etc/kafka/mm2.properties
+    command: |
+      sh -c '
+        echo "Waiting for brokers to be ready..." &&
+        sleep 15 &&
+        echo "Starting MirrorMaker 2..." &&
+        connect-mirror-maker /etc/kafka/mm2.properties
+      '
+    environment:
+      KAFKA_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/kafka/connect-log4j.properties"
